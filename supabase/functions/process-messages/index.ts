@@ -16,6 +16,14 @@ interface SessionData {
   handoff_reason?: string;
 }
 
+interface MessageLogContext {
+  supabase: any;
+  sessionId?: string | null;
+  channelId: string;
+  tenantId: string;
+  senderPhone: string;
+}
+
 interface NodeConfig {
   text?: string;
   question?: string;
@@ -137,6 +145,37 @@ Deno.serve(async (req) => {
         .eq("status", "active")
         .maybeSingle();
 
+      const { data: handoffSession } = !session
+        ? await supabase
+            .from("conversation_sessions")
+            .select("*")
+            .eq("channel_id", msg.channel_id)
+            .eq("sender_phone", senderPhone)
+            .in("status", ["queued", "handoff", "open"])
+            .order("last_activity_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : { data: null };
+
+      if (handoffSession) {
+        await logConversationMessage({
+          supabase,
+          sessionId: handoffSession.id,
+          channelId: msg.channel_id,
+          tenantId: msg.tenant_id,
+          senderPhone,
+        }, "inbound", "customer", userText, msg.payload);
+
+        await supabase
+          .from("conversation_sessions")
+          .update({ last_activity_at: new Date().toISOString() })
+          .eq("id", handoffSession.id);
+
+        await markMessage(supabase, msg.id, "processed");
+        processed++;
+        continue;
+      }
+
       // Get the published flow for this channel (preferred) or tenant
       const flowQuery = supabase
         .from("flows")
@@ -218,6 +257,14 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      await logConversationMessage({
+        supabase,
+        sessionId: session.id,
+        channelId: msg.channel_id,
+        tenantId: msg.tenant_id,
+        senderPhone,
+      }, "inbound", "customer", userText, msg.payload);
+
       // ── If we were awaiting input, capture it ──
       if (sessionData.awaiting_input && sessionData.awaiting_variable) {
         sessionData.variables[sessionData.awaiting_variable] = userText;
@@ -248,6 +295,13 @@ Deno.serve(async (req) => {
           channel.access_token,
           channel.phone_number_id,
           senderPhone,
+          {
+            supabase,
+            sessionId: session.id,
+            channelId: msg.channel_id,
+            tenantId: msg.tenant_id,
+            senderPhone,
+          },
         );
 
         if (result.messageSent) messagessSent++;
@@ -356,6 +410,7 @@ async function executeNode(
   accessToken: string,
   phoneNumberId: string,
   senderPhone: string,
+  logContext: MessageLogContext,
 ): Promise<ExecutionResult> {
   const interpolate = (text: string): string => {
     if (!text) return text;
@@ -372,19 +427,21 @@ async function executeNode(
 
     case "send_message": {
       const text = interpolate(config.text || "Hello!");
-      await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+      const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
         type: "text",
         text: { body: text },
       });
+      await logConversationMessage(logContext, "outbound", "bot", text, result);
       return { messageSent: true, awaitInput: false, terminal: false };
     }
 
     case "ask_question": {
       const question = interpolate(config.question || "Please respond:");
-      await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+      const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
         type: "text",
         text: { body: question },
       });
+      await logConversationMessage(logContext, "outbound", "bot", question, result);
       return {
         messageSent: true,
         awaitInput: true,
@@ -395,10 +452,11 @@ async function executeNode(
 
     case "capture_input": {
       const prompt = interpolate(config.prompt || config.text || config.question || "Please provide your input:");
-      await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+      const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
         type: "text",
         text: { body: prompt },
       });
+      await logConversationMessage(logContext, "outbound", "bot", prompt, result);
       return {
         messageSent: true,
         awaitInput: true,
@@ -418,7 +476,7 @@ async function executeNode(
       }));
 
       if (buttons.length > 0) {
-        await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+        const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
           type: "interactive",
           interactive: {
             type: "button",
@@ -426,6 +484,7 @@ async function executeNode(
             action: { buttons },
           },
         });
+        await logConversationMessage(logContext, "outbound", "bot", bodyText, result);
       }
       return {
         messageSent: true,
@@ -444,7 +503,7 @@ async function executeNode(
       }));
 
       if (rows.length > 0) {
-        await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+        const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
           type: "interactive",
           interactive: {
             type: "list",
@@ -455,6 +514,7 @@ async function executeNode(
             },
           },
         });
+        await logConversationMessage(logContext, "outbound", "bot", bodyText, result);
       }
       return {
         messageSent: true,
@@ -590,10 +650,11 @@ async function executeNode(
       const queueMessage = interpolate(
         config.message || config.fallbackMessage || "You're being transferred to our support team. Please wait..."
       );
-      await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+      const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
         type: "text",
         text: { body: queueMessage },
       });
+      await logConversationMessage(logContext, "outbound", "bot", queueMessage, result);
 
       sessionData.handoff_reason = config.reason || "queue_route";
       sessionData.variables["queue_id"] = config.queueId || "";
@@ -610,10 +671,11 @@ async function executeNode(
       const handoffMessage = interpolate(
         config.message || "Connecting you to a live agent. Please hold..."
       );
-      await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+      const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
         type: "text",
         text: { body: handoffMessage },
       });
+      await logConversationMessage(logContext, "outbound", "bot", handoffMessage, result);
 
       sessionData.handoff_reason = config.reason || "agent_handoff";
 
@@ -631,10 +693,11 @@ async function executeNode(
 
     case "end": {
       if (config.message) {
-        await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
+        const result = await sendWhatsAppMessage(accessToken, phoneNumberId, senderPhone, {
           type: "text",
           text: { body: interpolate(config.message) },
         });
+        await logConversationMessage(logContext, "outbound", "bot", interpolate(config.message), result);
       }
       return {
         messageSent: Boolean(config.message),
@@ -743,7 +806,7 @@ async function sendWhatsAppMessage(
   phoneNumberId: string,
   to: string,
   message: any,
-): Promise<void> {
+): Promise<any> {
   const response = await fetch(
     `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
     {
@@ -764,6 +827,32 @@ async function sendWhatsAppMessage(
     const errData = await response.json().catch(() => ({}));
     throw new Error(`WhatsApp API error ${response.status}: ${JSON.stringify(errData)}`);
   }
+
+  return response.json().catch(() => ({}));
+}
+
+async function logConversationMessage(
+  context: MessageLogContext,
+  direction: "inbound" | "outbound",
+  senderType: "customer" | "bot" | "agent" | "system",
+  body: string,
+  payload: any = {},
+): Promise<void> {
+  await context.supabase
+    .from("conversation_messages")
+    .insert({
+      session_id: context.sessionId,
+      channel_id: context.channelId,
+      tenant_id: context.tenantId,
+      sender_phone: context.senderPhone,
+      direction,
+      sender_type: senderType,
+      message_type: "text",
+      body,
+      payload,
+      status: "sent",
+      external_message_id: payload?.messages?.[0]?.id || payload?.raw?.id || null,
+    });
 }
 
 async function markMessage(

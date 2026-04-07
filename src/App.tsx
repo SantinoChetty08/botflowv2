@@ -10,6 +10,7 @@ import Tenants from "@/pages/admin/Tenants";
 import Channels from "@/pages/admin/Channels";
 import Flows from "@/pages/admin/Flows";
 import ApiDocs from "@/pages/admin/ApiDocs";
+import Inbox from "@/pages/admin/Inbox";
 import Auth from "@/pages/Auth";
 import FlowBuilder from "@/pages/FlowBuilder";
 import NotFound from "./pages/NotFound.tsx";
@@ -31,6 +32,7 @@ const App = () => (
               <Route index element={<Dashboard />} />
               <Route path="tenants" element={<Tenants />} />
               <Route path="channels" element={<Channels />} />
+              <Route path="inbox" element={<Inbox />} />
               <Route path="flows" element={<Flows />} />
               <Route path="api-docs" element={<ApiDocs />} />
             </Route>

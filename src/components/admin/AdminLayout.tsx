@@ -14,7 +14,7 @@ import {
   SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { LayoutDashboard, Building2, Radio, GitBranch, LogOut, User, FileText } from 'lucide-react';
+import { LayoutDashboard, Building2, Radio, GitBranch, LogOut, User, FileText, Inbox } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -22,6 +22,7 @@ const navItems = [
   { title: 'Dashboard', url: '/admin', icon: LayoutDashboard },
   { title: 'Tenants', url: '/admin/tenants', icon: Building2 },
   { title: 'Channels', url: '/admin/channels', icon: Radio },
+  { title: 'Inbox', url: '/admin/inbox', icon: Inbox },
   { title: 'Flows', url: '/admin/flows', icon: GitBranch },
   { title: 'API Docs', url: '/admin/api-docs', icon: FileText },
 ];
