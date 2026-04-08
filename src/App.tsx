@@ -11,6 +11,9 @@ import Channels from "@/pages/admin/Channels";
 import Flows from "@/pages/admin/Flows";
 import ApiDocs from "@/pages/admin/ApiDocs";
 import Inbox from "@/pages/admin/Inbox";
+import Templates from "@/pages/admin/Templates";
+import Broadcasts from "@/pages/admin/Broadcasts";
+import Analytics from "@/pages/admin/Analytics";
 import Auth from "@/pages/Auth";
 import FlowBuilder from "@/pages/FlowBuilder";
 import NotFound from "./pages/NotFound.tsx";
@@ -33,6 +36,9 @@ const App = () => (
               <Route path="tenants" element={<Tenants />} />
               <Route path="channels" element={<Channels />} />
               <Route path="inbox" element={<Inbox />} />
+              <Route path="templates" element={<Templates />} />
+              <Route path="broadcasts" element={<Broadcasts />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="flows" element={<Flows />} />
               <Route path="api-docs" element={<ApiDocs />} />
             </Route>

@@ -166,6 +166,17 @@ Deno.serve(async (req) => {
     .eq("channel_id", channel_id)
     .eq("status", "active");
 
+  await supabase.from("analytics_events").insert({
+    tenant_id: flow.tenant_id,
+    channel_id,
+    flow_id,
+    event_type: "flow_published",
+    payload: {
+      version: newVersion,
+      published_by: user.id,
+    },
+  });
+
   return new Response(
     JSON.stringify({
       success: true,

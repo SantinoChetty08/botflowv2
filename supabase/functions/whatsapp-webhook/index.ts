@@ -236,7 +236,69 @@ Deno.serve(async (req) => {
 
     if (statusUpdates.length > 0) {
       console.log(`[Channel ${channelId}] Received ${statusUpdates.length} status update(s)`);
-      // Status updates (delivered, read, etc.) can be logged or stored as needed
+      for (const status of statusUpdates) {
+        const externalMessageId = status.id || null;
+        const statusValue = status.status || "unknown";
+        const statusTimestamp = status.timestamp
+          ? new Date(Number(status.timestamp) * 1000).toISOString()
+          : new Date().toISOString();
+
+        if (!externalMessageId) continue;
+
+        const recipientPatch: Record<string, unknown> = {
+          status_updated_at: statusTimestamp,
+        };
+
+        if (statusValue === "delivered" || statusValue === "sent") {
+          recipientPatch.status = "sent";
+          recipientPatch.delivered_at = statusTimestamp;
+        } else if (statusValue === "read") {
+          recipientPatch.status = "sent";
+          recipientPatch.read_at = statusTimestamp;
+        } else if (statusValue === "failed") {
+          recipientPatch.status = "failed";
+          recipientPatch.error_message = status.errors?.[0]?.title || status.errors?.[0]?.message || "Delivery failed";
+        }
+
+        await supabase
+          .from("broadcast_recipients")
+          .update(recipientPatch)
+          .eq("external_message_id", externalMessageId);
+
+        const messagePatch: Record<string, unknown> = {
+          status: statusValue,
+          status_updated_at: statusTimestamp,
+        };
+
+        if (statusValue === "delivered" || statusValue === "sent") {
+          messagePatch.delivered_at = statusTimestamp;
+        } else if (statusValue === "read") {
+          messagePatch.read_at = statusTimestamp;
+        }
+
+        await supabase
+          .from("conversation_messages")
+          .update(messagePatch)
+          .eq("external_message_id", externalMessageId);
+
+        const { data: recipient } = await supabase
+          .from("broadcast_recipients")
+          .select("id, tenant_id, broadcast_id, phone_number")
+          .eq("external_message_id", externalMessageId)
+          .maybeSingle();
+
+        await supabase.from("analytics_events").insert({
+          tenant_id: recipient?.tenant_id || channel.tenant_id,
+          channel_id: channelId,
+          recipient_id: recipient?.id || null,
+          event_type: `message_${statusValue}`,
+          payload: {
+            external_message_id: externalMessageId,
+            phone_number: recipient?.phone_number || status.recipient_id || null,
+            status: statusValue,
+          },
+        });
+      }
     }
 
     // Always respond 200 to Meta quickly

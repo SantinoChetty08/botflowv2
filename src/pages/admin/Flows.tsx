@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Trash2, GitBranch, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+import { starterFlowTemplates } from '@/lib/flowTemplates';
 
 interface FlowForm {
   name: string;
@@ -65,6 +66,31 @@ const Flows = () => {
       queryClient.invalidateQueries({ queryKey: ['flows'] });
       queryClient.invalidateQueries({ queryKey: ['flows-count'] });
       toast.success('Flow created');
+      setDialogOpen(false);
+      setForm(emptyForm);
+      navigate(`/builder/${data.id}`);
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const createFromTemplateMutation = useMutation({
+    mutationFn: async ({ form, templateId }: { form: FlowForm; templateId: string }) => {
+      const template = starterFlowTemplates.find((item) => item.id === templateId);
+      if (!template) throw new Error('Template not found');
+      const { data, error } = await supabase.from('flows').insert({
+        name: form.name || template.name,
+        description: form.description || template.description,
+        tenant_id: form.tenant_id,
+        created_by: user?.id,
+        flow_data: template.flowData as any,
+      }).select('id').single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['flows'] });
+      queryClient.invalidateQueries({ queryKey: ['flows-count'] });
+      toast.success('Flow created from template');
       setDialogOpen(false);
       setForm(emptyForm);
       navigate(`/builder/${data.id}`);
@@ -187,6 +213,44 @@ const Flows = () => {
           </Table>
         </CardContent>
       </Card>
+
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-lg font-semibold text-foreground">Starter Templates</h3>
+          <p className="text-sm text-muted-foreground">Create a production-ready flow from a proven blueprint.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {starterFlowTemplates.map((template) => (
+            <Card key={template.id}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{template.name}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{template.category}</p>
+                  </div>
+                  <GitBranch className="w-4 h-4 text-primary" />
+                </div>
+                <p className="text-sm text-muted-foreground">{template.description}</p>
+                <div className="flex gap-2">
+                  <Select value={form.tenant_id} onValueChange={(v) => setForm({ ...form, tenant_id: v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose tenant" /></SelectTrigger>
+                    <SelectContent>
+                      {tenants?.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    disabled={!form.tenant_id || createFromTemplateMutation.isPending}
+                    onClick={() => createFromTemplateMutation.mutate({ form, templateId: template.id })}
+                  >
+                    Use Template
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

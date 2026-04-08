@@ -22,6 +22,8 @@ interface MessageLogContext {
   channelId: string;
   tenantId: string;
   senderPhone: string;
+  flowId?: string | null;
+  inboundMessageId?: string | null;
 }
 
 interface NodeConfig {
@@ -164,7 +166,19 @@ Deno.serve(async (req) => {
           channelId: msg.channel_id,
           tenantId: msg.tenant_id,
           senderPhone,
+          flowId: handoffSession.flow_id,
+          inboundMessageId: msg.id,
         }, "inbound", "customer", userText, msg.payload);
+
+        await logAnalyticsEvent(supabase, {
+          tenant_id: msg.tenant_id,
+          channel_id: msg.channel_id,
+          flow_id: handoffSession.flow_id,
+          session_id: handoffSession.id,
+          message_id: msg.id,
+          event_type: "conversation_waiting_for_agent",
+          payload: { sender_phone: senderPhone, status: handoffSession.status },
+        });
 
         await supabase
           .from("conversation_sessions")
@@ -263,7 +277,19 @@ Deno.serve(async (req) => {
         channelId: msg.channel_id,
         tenantId: msg.tenant_id,
         senderPhone,
+        flowId: flow.id,
+        inboundMessageId: msg.id,
       }, "inbound", "customer", userText, msg.payload);
+
+      await logAnalyticsEvent(supabase, {
+        tenant_id: msg.tenant_id,
+        channel_id: msg.channel_id,
+        flow_id: flow.id,
+        session_id: session.id,
+        message_id: msg.id,
+        event_type: "message_received",
+        payload: { sender_phone: senderPhone, message_type: msg.message_type },
+      });
 
       // ── If we were awaiting input, capture it ──
       if (sessionData.awaiting_input && sessionData.awaiting_variable) {
@@ -289,6 +315,7 @@ Deno.serve(async (req) => {
         const config: NodeConfig = node.data?.config || {};
 
         const result = await executeNode(
+          nextNodeId,
           nodeType,
           config,
           sessionData,
@@ -301,6 +328,8 @@ Deno.serve(async (req) => {
             channelId: msg.channel_id,
             tenantId: msg.tenant_id,
             senderPhone,
+            flowId: flow.id,
+            inboundMessageId: msg.id,
           },
         );
 
@@ -404,6 +433,7 @@ function listRows(config: NodeConfig): Array<{ title?: string; description?: str
 }
 
 async function executeNode(
+  nodeId: string,
   nodeType: string,
   config: NodeConfig,
   sessionData: SessionData,
@@ -412,6 +442,18 @@ async function executeNode(
   senderPhone: string,
   logContext: MessageLogContext,
 ): Promise<ExecutionResult> {
+  await logAnalyticsEvent(logContext.supabase, {
+    tenant_id: logContext.tenantId,
+    channel_id: logContext.channelId,
+    flow_id: logContext.flowId,
+    session_id: logContext.sessionId || null,
+    message_id: logContext.inboundMessageId || null,
+    event_type: "node_executed",
+    node_id: nodeId,
+    node_type: normalizeNodeType(nodeType),
+    payload: { node_type: normalizeNodeType(nodeType) },
+  });
+
   const interpolate = (text: string): string => {
     if (!text) return text;
     return text.replace(/\{\{(\w+)\}\}/g, (_, varName) => {
@@ -853,6 +895,33 @@ async function logConversationMessage(
       status: "sent",
       external_message_id: payload?.messages?.[0]?.id || payload?.raw?.id || null,
     });
+}
+
+async function logAnalyticsEvent(
+  supabase: any,
+  event: {
+    tenant_id?: string | null;
+    channel_id?: string | null;
+    flow_id?: string | null;
+    session_id?: string | null;
+    message_id?: string | null;
+    event_type: string;
+    node_id?: string;
+    node_type?: string;
+    payload?: any;
+  },
+): Promise<void> {
+  await supabase.from("analytics_events").insert({
+    tenant_id: event.tenant_id || null,
+    channel_id: event.channel_id || null,
+    flow_id: event.flow_id || null,
+    session_id: event.session_id || null,
+    message_id: event.message_id || null,
+    event_type: event.event_type,
+    node_id: event.node_id || null,
+    node_type: event.node_type || null,
+    payload: event.payload || {},
+  });
 }
 
 async function markMessage(

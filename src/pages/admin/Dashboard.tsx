@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, Radio, GitBranch, Activity } from 'lucide-react';
+import { Building2, Radio, GitBranch, Activity, ScrollText, Send } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const Dashboard = () => {
@@ -39,11 +39,31 @@ const Dashboard = () => {
     },
   });
 
+  const templateClient = supabase as any;
+
+  const { data: templateCount } = useQuery({
+    queryKey: ['templates-count'],
+    queryFn: async () => {
+      const { count } = await templateClient.from('message_templates').select('*', { count: 'exact', head: true });
+      return count || 0;
+    },
+  });
+
+  const { data: broadcastCount } = useQuery({
+    queryKey: ['broadcasts-count'],
+    queryFn: async () => {
+      const { count } = await templateClient.from('broadcasts').select('*', { count: 'exact', head: true });
+      return count || 0;
+    },
+  });
+
   const stats = [
     { label: 'Tenants', value: tenantCount ?? 0, icon: Building2, color: 'text-blue-500' },
     { label: 'Channels', value: channelCount ?? 0, icon: Radio, color: 'text-green-500' },
     { label: 'Total Flows', value: flowCount ?? 0, icon: GitBranch, color: 'text-purple-500' },
     { label: 'Published Flows', value: activeFlows ?? 0, icon: Activity, color: 'text-orange-500' },
+    { label: 'Templates', value: templateCount ?? 0, icon: ScrollText, color: 'text-sky-500' },
+    { label: 'Broadcasts', value: broadcastCount ?? 0, icon: Send, color: 'text-pink-500' },
   ];
 
   return (
@@ -56,7 +76,7 @@ const Dashboard = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         {stats.map((stat) => (
           <Card key={stat.label}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
